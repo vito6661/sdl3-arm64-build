@@ -26,18 +26,10 @@ jobs:
           
           # 3. Baixa e compila a SDL3
           git clone https://github.com/libsdl-org/SDL.git sdl
-          cd sdl
-          mkdir build && cd build
+          cd sdl && mkdir build && cd build
           
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DSDL_SHARED=ON \
-            -DSDL_STATIC=OFF \
-            -DSDL_X11=OFF \
-            -DSDL_WAYLAND=OFF \
-            -DSDL_KMSDRM=ON \
-            -DSDL_OPENGLES=ON \
-            -DSDL_DESKTOP=OFF
+          # Comando consolidado em uma única linha para evitar falhas de parse no container
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=ON -DSDL_OPENGLES=ON -DSDL_DESKTOP=OFF
             
           make -j$(nproc)
           

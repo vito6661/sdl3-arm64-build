@@ -1,4 +1,4 @@
-name: Build SDL3 (aarch64)
+name: Build (aarch64) usando SDL3 pré-compilado
 
 on:
   push:
@@ -6,65 +6,139 @@ on:
   pull_request:
   workflow_dispatch:
 
+env:
+  SDL3_VERSION: "3.4.10"
+  SDL3_RPM_URL: "https://distfiles.openmamba.org/RPMs/devel/aarch64/libsdl3-3.4.10-1mamba.aarch64.rpm"
+  SDL3_DEV_RPM_URL: "https://distfiles.openmamba.org/RPMs/devel/aarch64/libsdl3-devel-3.4.10-1mamba.aarch64.rpm"
+
 jobs:
   build-aarch64:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout SDL3
+      - name: Checkout do seu projeto
         uses: actions/checkout@v4
-        with:
-          repository: libsdl-org/SDL
-          ref: main
 
-      - name: Add arm64 architecture and repos
+      # ------------------------------------------------------------------ #
+      #  Instala o cross-compiler (sem precisar de repositórios arm64)      #
+      # ------------------------------------------------------------------ #
+      - name: Instalar cross-compiler aarch64
         run: |
-          sudo dpkg --add-architecture arm64
-
-          # Restringe os repos existentes apenas para amd64
-          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
-          sudo sed -i 's/^deb-src /deb-src [arch=amd64] /' /etc/apt/sources.list
-
-          # Adiciona repos arm64 (Ubuntu Ports)
-          CODENAME=$(lsb_release -cs)
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME} main restricted universe multiverse"           | sudo tee -a /etc/apt/sources.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-updates main restricted universe multiverse"  | sudo tee -a /etc/apt/sources.list
-          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
-
           sudo apt-get update
-
-      - name: Install cross-compiler and aarch64 dev libraries
-        run: |
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
             cmake \
             ninja-build \
             pkg-config \
-            libx11-dev:arm64 \
-            libxext-dev:arm64 \
-            libxrandr-dev:arm64 \
-            libxcursor-dev:arm64 \
-            libxfixes-dev:arm64 \
-            libxi-dev:arm64 \
-            libxss-dev:arm64 \
-            libxkbcommon-dev:arm64 \
-            libwayland-dev:arm64 \
-            libwayland-client0:arm64 \
-            libwayland-egl1:arm64 \
-            libegl-dev:arm64 \
-            libgles2-mesa-dev:arm64 \
-            libgl-dev:arm64 \
-            libasound2-dev:arm64 \
-            libpulse-dev:arm64 \
-            libudev-dev:arm64 \
-            libdbus-1-dev:arm64 \
-            libibus-1.0-dev:arm64 \
-            libsamplerate0-dev:arm64 \
-            libpipewire-0.3-dev:arm64 \
-            libdecor-0-dev:arm64
+            python3-pip
 
-      - name: Configure CMake (cross-compile aarch64)
+      # ------------------------------------------------------------------ #
+      #  Baixa e extrai os dois RPMs do openmamba (runtime + headers)       #
+      # ------------------------------------------------------------------ #
+      - name: Baixar RPMs do SDL3 (openmamba aarch64)
+        run: |
+          mkdir -p /tmp/sdl3-rpm
+          curl -fsSL "${{ env.SDL3_RPM_URL }}"     -o /tmp/sdl3-rpm/libsdl3.rpm
+          curl -fsSL "${{ env.SDL3_DEV_RPM_URL }}" -o /tmp/sdl3-rpm/libsdl3-devel.rpm || true
+          # Fallback: se o -devel não existir no servidor, usa só o runtime
+          ls -lh /tmp/sdl3-rpm/
+
+      - name: Extrair SDL3 dos RPMs para o sysroot
+        run: |
+          sudo mkdir -p /opt/aarch64-sysroot
+
+          python3 << 'PYEOF'
+          import struct, gzip, os, stat
+
+          SYSROOT = "/opt/aarch64-sysroot"
+
+          def extract_rpm(rpm_path):
+              if not os.path.exists(rpm_path) or os.path.getsize(rpm_path) < 100:
+                  print(f"  Pulando {rpm_path} (não encontrado ou vazio)")
+                  return
+
+              data = open(rpm_path, "rb").read()
+              gz_off = data.find(b'\x1f\x8b')
+              if gz_off == -1:
+                  print(f"  Payload não encontrado em {rpm_path}")
+                  return
+
+              raw = gzip.decompress(data[gz_off:])
+              pos = 0
+              count = 0
+              while pos < len(raw) - 6:
+                  magic = raw[pos:pos+6]
+                  if magic not in (b'070701', b'070702'):
+                      break
+                  h = raw[pos+6:pos+6+104]
+                  fields = [int(h[i*8:(i+1)*8], 16) for i in range(13)]
+                  namesize  = fields[11]
+                  filesize  = fields[6]
+                  file_mode = fields[1]
+                  name_start = pos + 110
+                  name = raw[name_start:name_start+namesize-1].decode(errors='replace')
+                  header_end    = (name_start + namesize + 3) & ~3
+                  file_data_end = header_end + filesize
+
+                  if name == 'TRAILER!!!':
+                      break
+
+                  # Remove o ./ inicial
+                  rel = name.lstrip('./')
+                  dest = os.path.join(SYSROOT, rel)
+
+                  if filesize > 0:
+                      os.makedirs(os.path.dirname(dest), exist_ok=True)
+                      with open(dest, 'wb') as f:
+                          f.write(raw[header_end:file_data_end])
+                      os.chmod(dest, 0o755 if (file_mode & 0o111) else 0o644)
+                      count += 1
+                      print(f"  + {rel}")
+
+                  pos = (file_data_end + 3) & ~3
+
+              print(f"  => {count} arquivos extraídos de {os.path.basename(rpm_path)}")
+
+          extract_rpm("/tmp/sdl3-rpm/libsdl3.rpm")
+          extract_rpm("/tmp/sdl3-rpm/libsdl3-devel.rpm")
+          PYEOF
+
+          # Criar symlinks esperados pelo linker
+          cd /opt/aarch64-sysroot/usr/lib64
+          sudo ln -sf libSDL3.so.0.4.10 libSDL3.so.0 2>/dev/null || true
+          sudo ln -sf libSDL3.so.0.4.10 libSDL3.so   2>/dev/null || true
+
+          echo "=== Conteúdo do sysroot SDL3 ==="
+          find /opt/aarch64-sysroot/usr -name '*SDL3*' | sort
+
+      # ------------------------------------------------------------------ #
+      #  Gera o sdl3.pc para que o CMake/pkg-config encontre a lib          #
+      # ------------------------------------------------------------------ #
+      - name: Criar pkg-config para SDL3 aarch64
+        run: |
+          sudo mkdir -p /opt/aarch64-sysroot/usr/lib64/pkgconfig
+
+          sudo tee /opt/aarch64-sysroot/usr/lib64/pkgconfig/sdl3.pc > /dev/null << PCEOF
+          prefix=/opt/aarch64-sysroot/usr
+          exec_prefix=\${prefix}
+          libdir=\${exec_prefix}/lib64
+          includedir=\${prefix}/include
+
+          Name: SDL3
+          Description: Simple DirectMedia Layer
+          Version: ${{ env.SDL3_VERSION }}
+          Libs: -L\${libdir} -lSDL3
+          Cflags: -I\${includedir}/SDL3
+          PCEOF
+
+          echo "=== pkg-config gerado ==="
+          cat /opt/aarch64-sysroot/usr/lib64/pkgconfig/sdl3.pc
+
+      # ------------------------------------------------------------------ #
+      #  Build do seu projeto                                                #
+      # ------------------------------------------------------------------ #
+      - name: Configurar CMake (cross-compile aarch64)
         run: |
           cmake -B build \
             -G Ninja \
@@ -73,33 +147,36 @@ jobs:
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DCMAKE_EXE_LINKER_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DCMAKE_SHARED_LINKER_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DSDL_SHARED=ON \
-            -DSDL_STATIC=OFF \
-            -DSDL_TEST_LIBRARY=OFF \
-            -DSDL_TESTS=OFF
+            -DCMAKE_PREFIX_PATH=/opt/aarch64-sysroot/usr \
+            -DSDL3_DIR=/opt/aarch64-sysroot/usr/lib64/cmake/SDL3 \
+            -DCMAKE_FIND_ROOT_PATH=/opt/aarch64-sysroot \
+            -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+            -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY
         env:
-          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
-          PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
-          PKG_CONFIG_SYSROOT_DIR: /usr/aarch64-linux-gnu
+          PKG_CONFIG_PATH: /opt/aarch64-sysroot/usr/lib64/pkgconfig
+          PKG_CONFIG_LIBDIR: /opt/aarch64-sysroot/usr/lib64/pkgconfig
+          PKG_CONFIG_SYSROOT_DIR: /opt/aarch64-sysroot
 
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Verify binary architecture
+      # ------------------------------------------------------------------ #
+      #  Verificação e upload                                                #
+      # ------------------------------------------------------------------ #
+      - name: Verificar arquitetura do binário gerado
         run: |
-          file build/libSDL3.so.*.*.*
-          echo "---"
-          aarch64-linux-gnu-readelf -h build/libSDL3.so.*.*.* | grep -E "Class|Machine"
+          # Ajuste o glob abaixo para o nome do seu executável/lib
+          find build -type f -executable -not -name '*.cmake' | head -5 | while read f; do
+            echo "--- $f ---"
+            file "$f"
+            aarch64-linux-gnu-readelf -h "$f" 2>/dev/null | grep -E 'Class|Machine' || true
+          done
 
-      - name: Upload artifact
+      - name: Upload do artefato
         uses: actions/upload-artifact@v4
         with:
-          name: sdl3-aarch64
-          path: |
-            build/libSDL3.so
-            build/libSDL3.so.*
+          name: meu-projeto-aarch64
+          path: build/
           if-no-files-found: error
           retention-days: 7

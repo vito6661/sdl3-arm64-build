@@ -9,16 +9,12 @@ on:
 env:
   SDL3_VERSION: "3.4.10"
   SDL3_REF: "release-3.4.10"
-  # Versão mínima de glibc alvo — ajuste conforme o resultado do diagnóstico
-  # Valores comuns em handhelds: 2.31 (Ubuntu 20.04), 2.33, 2.35 (Ubuntu 22.04)
   GLIBC_TARGET: "2.31"
 
 jobs:
   build-aarch64:
     runs-on: ubuntu-latest
     container:
-      # Ubuntu 20.04 tem glibc 2.31 — binários compilados aqui rodam
-      # em qualquer sistema com glibc >= 2.31
       image: ubuntu:20.04
 
     steps:
@@ -37,7 +33,6 @@ jobs:
         run: |
           dpkg --add-architecture arm64
 
-          # Ubuntu 20.04 usa sources.list clássico
           sed -i \
             -e 's/^deb /deb [arch=amd64] /' \
             -e 's/^deb-src /deb-src [arch=amd64] /' \
@@ -59,7 +54,7 @@ jobs:
             cmake \
             ninja-build \
             pkg-config \
-            lsb-release \
+            libc6-dev:arm64 \
             libx11-dev:arm64 \
             libxext-dev:arm64 \
             libxrandr-dev:arm64 \
@@ -79,14 +74,11 @@ jobs:
             libudev-dev:arm64 \
             libdbus-1-dev:arm64 \
             libsamplerate0-dev:arm64
-          # Nota: libpipewire e libdecor não existem no Focal — omitidos
-          # Nota: libibus omitido (conflito glib conhecido)
 
       - name: Verificar versão da glibc do container
         run: |
           ldd --version | head -1
-          strings /lib/aarch64-linux-gnu/libm.so.6 2>/dev/null \
-            | grep "GLIBC_" | sort -V | tail -3 || true
+          aarch64-linux-gnu-gcc --version | head -1
 
       - name: Configurar CMake (cross-compile aarch64)
         run: |
@@ -97,9 +89,6 @@ jobs:
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DCMAKE_EXE_LINKER_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
-            -DCMAKE_SHARED_LINKER_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
             -DSDL_SHARED=ON \
             -DSDL_STATIC=OFF \
             -DSDL_TEST_LIBRARY=OFF \
@@ -108,7 +97,6 @@ jobs:
         env:
           PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
           PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
-          PKG_CONFIG_SYSROOT_DIR: /usr/aarch64-linux-gnu
 
       - name: Build
         run: cmake --build build --parallel
@@ -119,13 +107,10 @@ jobs:
           file build/libSDL3.so.*.*.*
           aarch64-linux-gnu-readelf -h build/libSDL3.so.*.*.* \
             | grep -E 'Class|Machine'
-
           echo ""
           echo "=== Versão mínima de GLIBC exigida ==="
           aarch64-linux-gnu-objdump -p build/libSDL3.so.*.*.* \
             | grep GLIBC || true
-          aarch64-linux-gnu-readelf -V build/libSDL3.so.*.*.* 2>/dev/null \
-            | grep -A2 "GLIBC_" | head -20 || true
 
       - name: Upload do artefato
         uses: actions/upload-artifact@v4

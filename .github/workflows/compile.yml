@@ -15,18 +15,56 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: libsdl-org/SDL
-          ref: main          # ou uma tag: release-3.x.x
+          ref: main
 
-      - name: Install aarch64 cross-compiler
+      - name: Add arm64 architecture and repos
         run: |
+          sudo dpkg --add-architecture arm64
+
+          # Restringe os repos existentes apenas para amd64
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
+          sudo sed -i 's/^deb-src /deb-src [arch=amd64] /' /etc/apt/sources.list
+
+          # Adiciona repos arm64 (Ubuntu Ports)
+          CODENAME=$(lsb_release -cs)
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME} main restricted universe multiverse"           | sudo tee -a /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-updates main restricted universe multiverse"  | sudo tee -a /etc/apt/sources.list
+          echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-security main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list
+
           sudo apt-get update
+
+      - name: Install cross-compiler and aarch64 dev libraries
+        run: |
           sudo apt-get install -y \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
             cmake \
-            ninja-build
+            ninja-build \
+            pkg-config \
+            libx11-dev:arm64 \
+            libxext-dev:arm64 \
+            libxrandr-dev:arm64 \
+            libxcursor-dev:arm64 \
+            libxfixes-dev:arm64 \
+            libxi-dev:arm64 \
+            libxss-dev:arm64 \
+            libxkbcommon-dev:arm64 \
+            libwayland-dev:arm64 \
+            libwayland-client0:arm64 \
+            libwayland-egl1:arm64 \
+            libegl-dev:arm64 \
+            libgles2-mesa-dev:arm64 \
+            libgl-dev:arm64 \
+            libasound2-dev:arm64 \
+            libpulse-dev:arm64 \
+            libudev-dev:arm64 \
+            libdbus-1-dev:arm64 \
+            libibus-1.0-dev:arm64 \
+            libsamplerate0-dev:arm64 \
+            libpipewire-0.3-dev:arm64 \
+            libdecor-0-dev:arm64
 
-      - name: Configure CMake (cross-compile)
+      - name: Configure CMake (cross-compile aarch64)
         run: |
           cmake -B build \
             -G Ninja \
@@ -35,14 +73,33 @@ jobs:
             -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
             -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
             -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
+            -DCMAKE_EXE_LINKER_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
+            -DCMAKE_SHARED_LINKER_FLAGS="--sysroot=/usr/aarch64-linux-gnu" \
             -DSDL_SHARED=ON \
-            -DSDL_STATIC=OFF
+            -DSDL_STATIC=OFF \
+            -DSDL_TEST_LIBRARY=OFF \
+            -DSDL_TESTS=OFF
+        env:
+          PKG_CONFIG_PATH: /usr/lib/aarch64-linux-gnu/pkgconfig
+          PKG_CONFIG_LIBDIR: /usr/lib/aarch64-linux-gnu/pkgconfig
+          PKG_CONFIG_SYSROOT_DIR: /usr/aarch64-linux-gnu
 
       - name: Build
         run: cmake --build build --parallel
+
+      - name: Verify binary architecture
+        run: |
+          file build/libSDL3.so.*.*.*
+          echo "---"
+          aarch64-linux-gnu-readelf -h build/libSDL3.so.*.*.* | grep -E "Class|Machine"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: sdl3-aarch64
-          path: build/libSDL3.so*
+          path: |
+            build/libSDL3.so
+            build/libSDL3.so.*
+          if-no-files-found: error
+          retention-days: 7

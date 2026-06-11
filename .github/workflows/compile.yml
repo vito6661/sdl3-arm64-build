@@ -1,1 +1,53 @@
 
+name: Compile SDL3 for ARM64
+
+on:
+  workflow_dispatch: # Permite que você clique em um botão para iniciar a compilação manual
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Repository
+      uses: actions/checkout@v4
+
+    - name: Install Cross-Compilers and Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu cmake ninja-build
+
+    - name: Clone Official SDL3
+      run: |
+        git clone https://github.com/libsdl-org/SDL.git sdl3-src
+        # Nota: O branch padrão já é o da SDL3
+
+    - name: Configure CMake for ARM64
+      run: |
+        cd sdl3-src
+        mkdir build && cd build
+        cmake .. \
+          -DCMAKE_SYSTEM_NAME=Linux \
+          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DSDL_SHARED=ON \
+          -DSDL_STATIC=OFF
+
+    - name: Build SDL3
+      run: |
+        cd sdl3-src/build
+        cmake --build . --config Release --parallel $(nproc)
+
+    - name: Prepare Artifacts
+      run: |
+        mkdir output
+        # Copia a biblioteca real e os links simbólicos gerados
+        cp -d sdl3-src/build/libSDL3.so* output/
+
+    - name: Upload Compiled Library
+      uses: actions/upload-artifact@v4
+      with:
+        name: libSDL3-linux-arm64
+        path: output/

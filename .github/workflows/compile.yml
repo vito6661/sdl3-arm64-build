@@ -62,6 +62,7 @@ jobs:
             libxfixes-dev:arm64 \
             libxi-dev:arm64 \
             libxss-dev:arm64 \
+            libxtst-dev:arm64 \
             libxkbcommon-dev:arm64 \
             libwayland-dev:arm64 \
             libwayland-client0:arm64 \

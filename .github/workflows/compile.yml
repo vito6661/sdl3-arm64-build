@@ -36,7 +36,8 @@ jobs:
             -DSDL_X11=OFF \
             -DSDL_WAYLAND=OFF \
             -DSDL_KMSDRM=ON \
-            -DSDL_OPENGLES=ON
+            -DSDL_OPENGLES=ON \
+            -DSDL_DESKTOP=OFF
             
           make -j$(nproc)
           

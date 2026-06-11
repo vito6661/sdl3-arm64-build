@@ -10,23 +10,20 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Setup Multiarch and Install Cross-Compiler
+    - name: Setup Cross-Compilation Environment
       run: |
-        # Adiciona suporte a arquitetura ARM64
+        # 1. Adiciona suporte a arquitetura arm64
         sudo dpkg --add-architecture arm64
         
-        # Ajusta os repositórios para incluir os pacotes ARM64
-        sudo sed -i 's/deb http/deb [arch=amd64,i386] http/g' /etc/apt/sources.list
-        sudo sed -i 's/deb mirror/deb [arch=amd64,i386] mirror/g' /etc/apt/sources.list
-        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
-        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+        # 2. Atualiza a lista de pacotes (deixando o apt lidar com o espelhamento padrão)
+        sudo apt-get update -y
         
-        sudo apt-get update || true
+        # 3. Instala o compilador cruzado e ferramentas essenciais
+        # Nota: O nome correto no Ubuntu 24.04 costuma ser apenas 'pkg-config-aarch64-linux-gnu' 
+        # ou apenas 'pkg-config'. Vamos instalar os compiladores principais.
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config
         
-        # Instala as ferramentas de cross-compilation
-        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config-aarch64-linux-gnu
-        
-        # Instala dependências nativas para ARM64
+        # 4. Instala dependências de vídeo para a arquitetura arm64
         sudo apt-get install -y libdrm-dev:arm64 libgbm-dev:arm64 libgles2-mesa-dev:arm64 libegl1-mesa-dev:arm64
 
     - name: Clone and Build SDL3
@@ -34,15 +31,12 @@ jobs:
         git clone https://github.com/libsdl-org/SDL.git sdl
         cd sdl && mkdir build && cd build
         
-        # Define os caminhos para o compilador cruzado
-        export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
-        
+        # Configuração do CMake apontando para o cross-compiler
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
           -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
           -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
           -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-          -DPKG_CONFIG_EXECUTABLE=/usr/bin/aarch64-linux-gnu-pkg-config \
           -DCMAKE_BUILD_TYPE=Release \
           -DCMAKE_C_FLAGS="-O2 -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
           -DCMAKE_EXE_LINKER_FLAGS="-Wl,--hash-style=gnu" \

@@ -1,4 +1,4 @@
-name: Build SDL3 (aarch64)
+name: Build SDL3 aarch64 (glibc antiga)
 
 on:
   push:
@@ -9,53 +9,57 @@ on:
 env:
   SDL3_VERSION: "3.4.10"
   SDL3_REF: "release-3.4.10"
+  # Versão mínima de glibc alvo — ajuste conforme o resultado do diagnóstico
+  # Valores comuns em handhelds: 2.31 (Ubuntu 20.04), 2.33, 2.35 (Ubuntu 22.04)
+  GLIBC_TARGET: "2.31"
 
 jobs:
   build-aarch64:
     runs-on: ubuntu-latest
+    container:
+      # Ubuntu 20.04 tem glibc 2.31 — binários compilados aqui rodam
+      # em qualquer sistema com glibc >= 2.31
+      image: ubuntu:20.04
 
     steps:
+      - name: Configurar ambiente sem interação
+        run: |
+          echo "DEBIAN_FRONTEND=noninteractive" >> $GITHUB_ENV
+          echo "TZ=UTC" >> $GITHUB_ENV
+
       - name: Checkout SDL3
         uses: actions/checkout@v4
         with:
           repository: libsdl-org/SDL
           ref: ${{ env.SDL3_REF }}
 
-      - name: Adicionar arquitetura arm64 e repositórios ports
+      - name: Adicionar arquitetura arm64 e repositórios ports (Focal)
         run: |
-          sudo dpkg --add-architecture arm64
+          dpkg --add-architecture arm64
 
-          CODENAME=$(lsb_release -cs)
-
-          # Ubuntu 24.04 usa formato DEB822 — restringe entradas nativas a amd64
-          if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-            sudo sed -i '/^Types:/i Architectures: amd64' \
-              /etc/apt/sources.list.d/ubuntu.sources
-          fi
-
-          # Formato legado, se existir
-          sudo sed -i \
+          # Ubuntu 20.04 usa sources.list clássico
+          sed -i \
             -e 's/^deb /deb [arch=amd64] /' \
             -e 's/^deb-src /deb-src [arch=amd64] /' \
-            /etc/apt/sources.list 2>/dev/null || true
+            /etc/apt/sources.list
 
-          # Repositórios arm64 — apenas ports.ubuntu.com hospeda arm64
-          sudo tee /etc/apt/sources.list.d/arm64-ports.list > /dev/null << SOURCES
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}          main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-updates  main restricted universe multiverse
-          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports ${CODENAME}-security main restricted universe multiverse
+          tee /etc/apt/sources.list.d/arm64-ports.list > /dev/null << SOURCES
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal          main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-updates  main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-security main restricted universe multiverse
           SOURCES
 
-          sudo apt-get update
+          apt-get update
 
       - name: Instalar cross-compiler e libs de desenvolvimento aarch64
         run: |
-          sudo apt-get install -y \
+          apt-get install -y \
             gcc-aarch64-linux-gnu \
             g++-aarch64-linux-gnu \
             cmake \
             ninja-build \
             pkg-config \
+            lsb-release \
             libx11-dev:arm64 \
             libxext-dev:arm64 \
             libxrandr-dev:arm64 \
@@ -74,13 +78,15 @@ jobs:
             libpulse-dev:arm64 \
             libudev-dev:arm64 \
             libdbus-1-dev:arm64 \
-            libsamplerate0-dev:arm64 \
-            libpipewire-0.3-dev:arm64 \
-            libdecor-0-dev:arm64
-          # Nota: libibus-1.0-dev:arm64 removido intencionalmente —
-          # puxa libglib2.0-dev:arm64 que conflita com a versão amd64
-          # já instalada no runner. O SDL3 detecta ibus em runtime,
-          # não precisa do header para compilar.
+            libsamplerate0-dev:arm64
+          # Nota: libpipewire e libdecor não existem no Focal — omitidos
+          # Nota: libibus omitido (conflito glib conhecido)
+
+      - name: Verificar versão da glibc do container
+        run: |
+          ldd --version | head -1
+          strings /lib/aarch64-linux-gnu/libm.so.6 2>/dev/null \
+            | grep "GLIBC_" | sort -V | tail -3 || true
 
       - name: Configurar CMake (cross-compile aarch64)
         run: |
@@ -107,19 +113,26 @@ jobs:
       - name: Build
         run: cmake --build build --parallel
 
-      - name: Verificar arquitetura da lib gerada
+      - name: Verificar glibc mínima exigida pela lib gerada
         run: |
+          echo "=== Arquitetura ==="
           file build/libSDL3.so.*.*.*
-          echo "---"
           aarch64-linux-gnu-readelf -h build/libSDL3.so.*.*.* \
             | grep -E 'Class|Machine'
+
+          echo ""
+          echo "=== Versão mínima de GLIBC exigida ==="
+          aarch64-linux-gnu-objdump -p build/libSDL3.so.*.*.* \
+            | grep GLIBC || true
+          aarch64-linux-gnu-readelf -V build/libSDL3.so.*.*.* 2>/dev/null \
+            | grep -A2 "GLIBC_" | head -20 || true
 
       - name: Upload do artefato
         uses: actions/upload-artifact@v4
         with:
-          name: libSDL3-aarch64-${{ env.SDL3_VERSION }}
+          name: libSDL3-aarch64-glibc${{ env.GLIBC_TARGET }}-${{ env.SDL3_VERSION }}
           path: |
             build/libSDL3.so
             build/libSDL3.so.*
           if-no-files-found: error
-          retention-days: 7
+          retention-days: 30

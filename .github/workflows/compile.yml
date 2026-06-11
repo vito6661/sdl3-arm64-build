@@ -4,24 +4,25 @@ on: workflow_dispatch
 
 jobs:
   build-arm64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Setup Cross-Compilation Environment
+    - name: Setup Multiarch and Install Cross-Compiler
       run: |
         # 1. Adiciona suporte a arquitetura arm64
         sudo dpkg --add-architecture arm64
         
-        # 2. Atualiza a lista de pacotes (deixando o apt lidar com o espelhamento padrão)
+        # 2. Configura os repositórios ARM64 corretamente para o Ubuntu 20.04
+        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
+        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+        
         sudo apt-get update -y
         
-        # 3. Instala o compilador cruzado e ferramentas essenciais
-        # Nota: O nome correto no Ubuntu 24.04 costuma ser apenas 'pkg-config-aarch64-linux-gnu' 
-        # ou apenas 'pkg-config'. Vamos instalar os compiladores principais.
-        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config
+        # 3. Instala as ferramentas de cross-compilation
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config-aarch64-linux-gnu
         
         # 4. Instala dependências de vídeo para a arquitetura arm64
         sudo apt-get install -y libdrm-dev:arm64 libgbm-dev:arm64 libgles2-mesa-dev:arm64 libegl1-mesa-dev:arm64
@@ -31,7 +32,9 @@ jobs:
         git clone https://github.com/libsdl-org/SDL.git sdl
         cd sdl && mkdir build && cd build
         
-        # Configuração do CMake apontando para o cross-compiler
+        # Força o PKG_CONFIG a olhar apenas para as libs arm64
+        export PKG_CONFIG_LIBDIR=/usr/aarch64-linux-gnu/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig
+        
         cmake .. \
           -DCMAKE_SYSTEM_NAME=Linux \
           -DCMAKE_SYSTEM_PROCESSOR=aarch64 \

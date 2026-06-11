@@ -17,9 +17,9 @@ jobs:
         distro: ubuntu20.04
         githubToken: ${{ github.token }}
         run: |
-          # 1. Instala as dependências de vídeo + o compilador CLANG
+          # 1. Instala as dependências de vídeo (Removemos o Clang pesadão daqui!)
           apt-get update -y
-          DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake build-essential pkg-config libdrm-dev libgbm-dev libgles2-mesa-dev clang
+          DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake build-essential pkg-config libdrm-dev libgbm-dev libgles2-mesa-dev
           
           # 2. Cria a pasta de saída
           mkdir -p output
@@ -28,10 +28,10 @@ jobs:
           git clone https://github.com/libsdl-org/SDL.git sdl
           cd sdl && mkdir build && cd build
           
-          # 4. Configuração em linha única com bypass de memória (-O0) e sem HIDAPI
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS="-O0" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=ON -DSDL_OPENGLES=ON -DSDL_UNIX_CONSOLE_BUILD=ON -DSDL_HIDAPI=OFF
+          # 4. Configuração usando o compilador padrão (GCC), mas blindado com -O0 e sem HIDAPI
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-O0" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=ON -DSDL_OPENGLES=ON -DSDL_UNIX_CONSOLE_BUILD=ON -DSDL_HIDAPI=OFF
             
-          # 5. Compilação segura
+          # 5. Compilação segura com 1 núcleo
           make -j1
           
           # 6. Salva a biblioteca pronta

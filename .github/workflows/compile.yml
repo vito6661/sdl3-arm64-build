@@ -28,23 +28,13 @@ jobs:
           git clone https://github.com/libsdl-org/SDL.git sdl
           cd sdl && mkdir build && cd build
           
-          # 4. Configuração apontando para o Clang (-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
-          cmake .. \
-            -DCMAKE_BUILD_TYPE=Release \
-            -DCMAKE_C_COMPILER=clang \
-            -DCMAKE_CXX_COMPILER=clang++ \
-            -DSDL_SHARED=ON \
-            -DSDL_STATIC=OFF \
-            -DSDL_X11=OFF \
-            -DSDL_WAYLAND=OFF \
-            -DSDL_KMSDRM=ON \
-            -DSDL_OPENGLES=ON \
-            -DSDL_UNIX_CONSOLE_BUILD=ON
+          # 4. Configuração em linha única com bypass de memória (-O0) e sem HIDAPI
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_C_FLAGS="-O0" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=ON -DSDL_OPENGLES=ON -DSDL_UNIX_CONSOLE_BUILD=ON -DSDL_HIDAPI=OFF
             
-          # Mantemos -j1 para segurança total de RAM
+          # 5. Compilação segura
           make -j1
           
-          # 5. Salva a biblioteca pronta
+          # 6. Salva a biblioteca pronta
           cp libSDL3.so* ../../output/
 
     - name: Upload Artifact

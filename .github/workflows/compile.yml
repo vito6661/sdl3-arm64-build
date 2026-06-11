@@ -1,64 +1,118 @@
-name: Fast Cross-Compile SDL3 ARM64
+name: Build SDL3 ARM64
 
-on: workflow_dispatch
+on:
+  workflow_dispatch:
 
 jobs:
   build-arm64:
     runs-on: ubuntu-20.04
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4
+      - name: Checkout Repository
+        uses: actions/checkout@v4
 
-    - name: Setup Multiarch and Install Cross-Compiler
-      run: |
-        # 1. Adiciona suporte a arquitetura arm64
-        sudo dpkg --add-architecture arm64
-        
-        # 2. Configura os repositórios ARM64 corretamente para o Ubuntu 20.04
-        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
-        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
-        
-        sudo apt-get update -y
-        
-        # 3. Instala as ferramentas de cross-compilation
-        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config-aarch64-linux-gnu
-        
-        # 4. Instala dependências de vídeo para a arquitetura arm64
-        sudo apt-get install -y libdrm-dev:arm64 libgbm-dev:arm64 libgles2-mesa-dev:arm64 libegl1-mesa-dev:arm64
+      - name: Configure ARM64 Multiarch
+        run: |
+          sudo dpkg --add-architecture arm64
 
-    - name: Clone and Build SDL3
-      run: |
-        git clone https://github.com/libsdl-org/SDL.git sdl
-        cd sdl && mkdir build && cd build
-        
-        # Força o PKG_CONFIG a olhar apenas para as libs arm64
-        export PKG_CONFIG_LIBDIR=/usr/aarch64-linux-gnu/lib/pkgconfig:/usr/lib/aarch64-linux-gnu/pkgconfig
-        
-        cmake .. \
-          -DCMAKE_SYSTEM_NAME=Linux \
-          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
-          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
-          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
-          -DCMAKE_BUILD_TYPE=Release \
-          -DCMAKE_C_FLAGS="-O2 -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
-          -DCMAKE_EXE_LINKER_FLAGS="-Wl,--hash-style=gnu" \
-          -DSDL_SHARED=ON \
-          -DSDL_STATIC=OFF \
-          -DSDL_X11=OFF \
-          -DSDL_WAYLAND=OFF \
-          -DSDL_KMSDRM=ON \
-          -DSDL_OPENGLES=ON \
-          -DSDL_UNIX_CONSOLE_BUILD=ON \
-          -DSDL_HIDAPI=OFF
-            
-        make -j$(nproc)
-        
-        mkdir -p ../../output
-        cp libSDL3.so* ../../output/
+          # Mantém os repositórios padrão para amd64
+          sudo sed -i 's/^deb /deb [arch=amd64] /' /etc/apt/sources.list
 
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: libSDL3-cross-arm64
-        path: output/
+          # Adiciona repositórios arm64
+          cat <<EOF | sudo tee /etc/apt/sources.list.d/arm64.list
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-updates main restricted universe multiverse
+          deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-security main restricted universe multiverse
+          EOF
+
+          sudo apt-get update
+
+      - name: Install Build Tools
+        run: |
+          sudo apt-get install -y \
+            build-essential \
+            git \
+            cmake \
+            ninja-build \
+            pkg-config \
+            gcc-aarch64-linux-gnu \
+            g++-aarch64-linux-gnu \
+            binutils-aarch64-linux-gnu
+
+      - name: Install ARM64 Dependencies
+        run: |
+          sudo apt-get install -y \
+            libdrm-dev:arm64 \
+            libgbm-dev:arm64 \
+            libegl1-mesa-dev:arm64 \
+            libgles2-mesa-dev:arm64 \
+            libasound2-dev:arm64 \
+            libudev-dev:arm64 \
+            libdbus-1-dev:arm64
+
+      - name: Clone SDL3
+        run: |
+          git clone --depth 1 https://github.com/libsdl-org/SDL.git SDL
+
+      - name: Configure SDL3
+        run: |
+          mkdir SDL/build
+          cd SDL/build
+
+          export PKG_CONFIG_SYSROOT_DIR=/
+          export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+          export PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+
+          cmake .. \
+            -G Ninja \
+            -DCMAKE_SYSTEM_NAME=Linux \
+            -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+            -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+            -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_FLAGS="-O2 -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
+            -DCMAKE_CXX_FLAGS="-O2 -D_FILE_OFFSET_BITS=64 -D_GNU_SOURCE" \
+            -DSDL_SHARED=ON \
+            -DSDL_STATIC=OFF \
+            -DSDL_TESTS=OFF \
+            -DSDL_EXAMPLES=OFF \
+            -DSDL_X11=OFF \
+            -DSDL_WAYLAND=OFF \
+            -DSDL_KMSDRM=ON \
+            -DSDL_OPENGLES=ON \
+            -DSDL_OPENGLES_SHARED=ON \
+            -DSDL_HIDAPI=OFF \
+            -DSDL_PIPEWIRE=OFF \
+            -DSDL_PULSEAUDIO=OFF
+
+      - name: Build SDL3
+        run: |
+          cd SDL/build
+          ninja
+
+      - name: Verify ARM64 Binary
+        run: |
+          cd SDL/build
+
+          echo "=== FILE ==="
+          file libSDL3.so
+
+          echo "=== ELF HEADER ==="
+          aarch64-linux-gnu-readelf -h libSDL3.so | grep Machine
+
+          echo "=== GLIBC SYMBOLS ==="
+          aarch64-linux-gnu-objdump -T libSDL3.so | grep GLIBC_ | sort -u || true
+
+      - name: Package Library
+        run: |
+          mkdir -p output
+
+          find SDL/build -name "libSDL3.so*" -exec cp {} output/ \;
+
+          ls -lah output
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: SDL3-ARM64-KMSDRM
+          path: output/

@@ -28,12 +28,12 @@ jobs:
           git clone https://github.com/libsdl-org/SDL.git sdl
           cd sdl && mkdir build && cd build
           
-          # Comando consolidado em uma única linha para evitar falhas de parse no container
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=ON -DSDL_OPENGLES=ON -DSDL_DESKTOP=OFF
+          # 4. Configuração blindada com a flag de Console/Embarcado (SDL_UNIX_CONSOLE_BUILD=ON)
+          cmake .. -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=ON -DSDL_OPENGLES=ON -DSDL_UNIX_CONSOLE_BUILD=ON
             
           make -j$(nproc)
           
-          # 4. Salva a biblioteca pronta
+          # 5. Salva a biblioteca pronta
           cp libSDL3.so* ../../output/
 
     - name: Upload Artifact

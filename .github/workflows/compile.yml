@@ -17,9 +17,9 @@ jobs:
         distro: ubuntu20.04
         githubToken: ${{ github.token }}
         run: |
-          # 1. Instala as dependências NATIVAS de vídeo para ARM64
+          # 1. Instala as dependências de vídeo + o compilador CLANG
           apt-get update -y
-          DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake build-essential pkg-config libdrm-dev libgbm-dev libgles2-mesa-dev
+          DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake build-essential pkg-config libdrm-dev libgbm-dev libgles2-mesa-dev clang
           
           # 2. Cria a pasta de saída
           mkdir -p output
@@ -28,9 +28,20 @@ jobs:
           git clone https://github.com/libsdl-org/SDL.git sdl
           cd sdl && mkdir build && cd build
           
-          # 4. Configuração blindada com a flag de Console/Embarcado (SDL_UNIX_CONSOLE_BUILD=ON)
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=ON -DSDL_OPENGLES=ON -DSDL_UNIX_CONSOLE_BUILD=ON
+          # 4. Configuração apontando para o Clang (-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_C_COMPILER=clang \
+            -DCMAKE_CXX_COMPILER=clang++ \
+            -DSDL_SHARED=ON \
+            -DSDL_STATIC=OFF \
+            -DSDL_X11=OFF \
+            -DSDL_WAYLAND=OFF \
+            -DSDL_KMSDRM=ON \
+            -DSDL_OPENGLES=ON \
+            -DSDL_UNIX_CONSOLE_BUILD=ON
             
+          # Mantemos -j1 para segurança total de RAM
           make -j1
           
           # 5. Salva a biblioteca pronta

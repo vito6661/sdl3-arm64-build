@@ -37,7 +37,8 @@ jobs:
           -DSDL_X11=OFF \
           -DSDL_WAYLAND=OFF \
           -DSDL_KMSDRM=ON \
-          -DSDL_OPENGLES=ON \
+          -DSDL_VIDEO_DRIVER_KMSDRM=ON \
+          -DSDL_VIDEO_DRIVER_DUMMY=ON \
           -DSDL_DESKTOP=OFF
 
     - name: Build SDL3

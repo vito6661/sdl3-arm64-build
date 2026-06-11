@@ -1,44 +1,68 @@
-name: Compile SDL3 Native ARM64 (GLIBC 2.31)
+name: Fast Cross-Compile SDL3 ARM64 (GLIBC 2.31)
 
 on: workflow_dispatch
 
 jobs:
   build-arm64:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-20.04
 
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
 
-    - name: Emulate ARM64 and Compile
-      uses: uraimo/run-on-arch-action@v2
-      with:
-        arch: aarch64
-        distro: ubuntu20.04
-        githubToken: ${{ github.token }}
-        run: |
-          # 1. Instala as dependências de vídeo (Removemos o Clang pesadão daqui!)
-          apt-get update -y
-          DEBIAN_FRONTEND=noninteractive apt-get install -y git cmake build-essential pkg-config libdrm-dev libgbm-dev libgles2-mesa-dev
-          
-          # 2. Cria a pasta de saída
-          mkdir -p output
-          
-          # 3. Baixa e compila a SDL3
-          git clone https://github.com/libsdl-org/SDL.git sdl
-          cd sdl && mkdir build && cd build
-          
-          # 4. Configuração usando o compilador padrão (GCC), mas blindado com -O0 e sem HIDAPI
-          cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS="-O0" -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_KMSDRM=ON -DSDL_OPENGLES=ON -DSDL_UNIX_CONSOLE_BUILD=ON -DSDL_HIDAPI=OFF
-            
-          # 5. Compilação segura com 1 núcleo
-          make -j1
-          
-          # 6. Salva a biblioteca pronta
-          cp libSDL3.so* ../../output/
+    - name: Setup Multiarch and Install Cross-Compiler
+      run: |
+        # 1. Avisa ao Ubuntu que vamos usar pacotes ARM64
+        sudo dpkg --add-architecture arm64
+        
+        # 2. Separa os repositórios para o apt-get não bugar
+        sudo sed -i 's/deb http/deb [arch=amd64,i386] http/g' /etc/apt/sources.list
+        sudo sed -i 's/deb mirror/deb [arch=amd64,i386] mirror/g' /etc/apt/sources.list
+        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal main restricted universe multiverse" | sudo tee /etc/apt/sources.list.d/arm64.list
+        echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports focal-updates main restricted universe multiverse" | sudo tee -a /etc/apt/sources.list.d/arm64.list
+        
+        sudo apt-get update || true
+        
+        # 3. Instala o compilador cruzado ultrarrápido
+        sudo apt-get install -y gcc-aarch64-linux-gnu g++-aarch64-linux-gnu pkg-config-aarch64-linux-gnu
+        
+        # 4. Instala as dependências de vídeo diretamente para ARM64 (KMSDRM, GBM, GLES2)
+        sudo apt-get install -y libdrm-dev:arm64 libgbm-dev:arm64 libgles2-mesa-dev:arm64 libegl1-mesa-dev:arm64
+
+    - name: Clone and Configure SDL3
+      run: |
+        git clone https://github.com/libsdl-org/SDL.git sdl
+        cd sdl && mkdir build && cd build
+        
+        # Força o pkg-config a achar as bibliotecas de vídeo arm64 que baixamos
+        export PKG_CONFIG_LIBDIR=/usr/lib/aarch64-linux-gnu/pkgconfig:/usr/share/pkgconfig
+        export PKG_CONFIG_PATH=""
+        
+        # Configuração nativa veloz apontando para o console puro
+        cmake .. \
+          -DCMAKE_SYSTEM_NAME=Linux \
+          -DCMAKE_SYSTEM_PROCESSOR=aarch64 \
+          -DCMAKE_C_COMPILER=aarch64-linux-gnu-gcc \
+          -DCMAKE_CXX_COMPILER=aarch64-linux-gnu-g++ \
+          -DPKG_CONFIG_EXECUTABLE=/usr/bin/aarch64-linux-gnu-pkg-config \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DSDL_SHARED=ON \
+          -DSDL_STATIC=OFF \
+          -DSDL_X11=OFF \
+          -DSDL_WAYLAND=OFF \
+          -DSDL_KMSDRM=ON \
+          -DSDL_OPENGLES=ON \
+          -DSDL_UNIX_CONSOLE_BUILD=ON \
+          -DSDL_HIDAPI=OFF
+
+        # Como não tem emulador, podemos usar força máxima!
+        make -j$(nproc)
+        
+        mkdir -p ../../output
+        cp libSDL3.so* ../../output/
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: libSDL3-native-arm64
+        name: libSDL3-cross-arm64
         path: output/
